@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Portal - Find Nearest Runner</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            overflow: hidden;
+        }
+        
+        html, body {
+            height: 100%;
+            width: 100%;
+        }
+        
+        #map {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 100%;
+            z-index: 1;
+            background-color: #e8e8e8;
+        }
+        
+        .leaflet-container {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Panel Styling */
+        #panel {
+            position: fixed;
+            bottom: 15px;
+            left: 15px;
+            background: white;
+            padding: 18px;
+            z-index: 1000;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            width: 380px;
+            max-height: 75vh;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            overflow-y: auto;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(-400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .panel-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .panel-title::before {
+            content: "📍";
+            font-size: 18px;
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .tab-btn {
+            padding: 8px 16px;
+            background: #f0f0f0;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px 4px 0 0;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            color: #666;
+        }
+        
+        .tab-btn:hover {
+            background: #e0e0e0;
+        }
+        
+        .tab-btn.active {
+            background: #20c997;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .instruction {
+            background: #f9f9f9;
+            padding: 10px;
+            border-left: 3px solid #20c997;
+            margin-bottom: 12px;
+            font-size: 12px;
+            color: #555;
+            line-height: 1.5;
+        }
+        
+        #info {
+            background: white;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            padding: 12px;
+            min-height: 60px;
+            margin-bottom: 10px;
+        }
+        
+        .status-loading {
+            color: #ff9800;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-loading::before {
+            content: "⏳";
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .route-info {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 8px 0;
+            font-size: 12px;
+            border-left: 3px solid #2196f3;
+        }
+        
+        .route-info strong {
+            color: #1976d2;
+        }
+        
+        .distance {
+            font-size: 14px;
+            font-weight: bold;
+            color: #1976d2;
+        }
+        
+        .eta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .runner-info {
+            background: #fff3e0;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 8px 0;
+            border-left: 3px solid #ff9800;
+            font-size: 12px;
+        }
+        
+        .runner-name {
+            font-weight: bold;
+            color: #e65100;
+            font-size: 13px;
+        }
+        
+        .btn {
+            background: #20c997;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: background 0.2s;
+            margin-top: 8px;
+        }
+        
+        .btn:hover {
+            background: #1aa179;
+        }
+        
+        .btn:active {
+            background: #0f7c54;
+        }
+        
+        .coordinate-popup {
+            background: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            pointer-events: auto;
+            z-index: 2000 !important;
+        }
+        
+        /* Scrollbar styling */
+        #panel::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        #panel::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        
+        #panel::-webkit-scrollbar-thumb {
+            background: #c0c0c0;
+            border-radius: 3px;
+        }
+        
+        #panel::-webkit-scrollbar-thumb:hover {
+            background: #a0a0a0;
+        }
+        
+        .favorites-list {
+            margin-top: 10px;
+        }
+        
+        .favorite-item {
+            background: #f5f5f5;
+            padding: 8px;
+            margin: 5px 0;
+            border-radius: 3px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.2s;
+        }
+        
+        .favorite-item:hover {
+            background: #e8e8e8;
+        }
+        
+        .delete-btn {
+            background: #ff5252;
+            color: white;
+            border: none;
+            padding: 3px 8px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+        }
+        
+        .delete-btn:hover {
+            background: #ff1744;
+        }
+    </style>
+</head>
+<body>
+    <!-- Map Container -->
+    <div id="map"></div>
+    
+    <!-- Control Panel -->
+    <div id="panel">
+        <div class="panel-title">Advanced Location Finder</div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('route')">Route</button>
+            <button class="tab-btn" onclick="switchTab('location')">Location</button>
+            <button class="tab-btn" onclick="switchTab('favorites')">⭐ Favorites</button>
+        </div>
+        
+        <!-- Route Tab -->
+        <div id="route" class="tab-content active">
+            <div class="instruction">
+                🏃 Nearest Runner Location<br>
+                ⏱️ Time to Reach You<br>
+                📏 Distance in Kilometers
+            </div>
+            <div id="info">
+                <div class="status-loading">Finding nearest runner...</div>
+            </div>
+        </div>
+        
+        <!-- Location Tab -->
+        <div id="location" class="tab-content">
+            <div class="instruction">Use GPS or manually set your location</div>
+            <button class="btn" onclick="getCurrentLocation()" style="width: 100%;">📍 Get My GPS Location</button>
+            <div id="location-display" style="margin-top: 10px;">
+                <div class="status-loading">GPS Location: Not set</div>
+            </div>
+        </div>
+        
+        <!-- Favorites Tab -->
+        <div id="favorites" class="tab-content">
+            <div class="instruction">📌 Save and manage your favorite locations</div>
+            <button class="btn" onclick="saveFavoriteLocation()" style="width: 100%;">💾 Save Current Location</button>
+            <div class="favorites-list" id="favorites-list">
+                <div style="color: #999; font-size: 12px; text-align: center; padding: 20px 0;">No saved locations yet</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Leaflet JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    
+    <script>
+        // ==================== STATE ====================
+        let map = null;
+        let userMarker = null;
+        let runnerMarkers = [];
+        let routePolyline = null;
+        let routeLabelMarker = null;
+        let bikeMarker = null;
+        let bikeProgress = Math.random() * 0.2; // Random start along the route
+        let bikeActive = true;
+        let clickTooltip = null;
+        let destinationMarker = null;
+        
+        // Popular Tirupati locations
+        const locations = {
+            tirupatirailwaystation: { 
+                name: 'Tirupati Railway Station Area',
+                lat: 13.6150, 
+                lng: 79.4050 
+            },
+            tirupaticentralmarket: { 
+                name: 'Tirupati Central Market',
+                lat: 13.6300, 
+                lng: 79.4200 
+            }
+        };
+        
+        const state = {
+            userLocation: { lat: 13.6150, lng: 79.4050 },  // Railway Station - User/Customer
+            userLocationName: 'Tirupati Railway Station Area',
+            selectedLocation: null,
+            nearestRunner: null,
+            runners: [],
+            savedLocations: [],
+            lastClickCoordinates: null,
+            currentDistanceKm: null,
+            currentTimeMin: null
+        };
+        
+        // Simulated runners data - positioned near user, ~2km away
+        const simulatedRunners = [
+            { id: 1, name: 'Runner 1', lat: 13.6300, lng: 79.4200, speed: 15, locationName: 'Tirupati Central Market' },
+            { id: 2, name: 'Runner 2', lat: 13.6280, lng: 79.4180, speed: 12, locationName: 'Gandhi Road' },
+            { id: 3, name: 'Runner 3', lat: 13.6320, lng: 79.4220, speed: 18, locationName: 'Main Street Tirupati' },
+            { id: 4, name: 'Runner 4', lat: 13.6200, lng: 79.4100, speed: 14, locationName: 'Sri Karumariah Temple' },
+            { id: 5, name: 'Runner 5', lat: 13.6400, lng: 79.4300, speed: 16, locationName: 'Krishnan Street' }
+        ];
+        
+        // ==================== MAP INITIALIZATION ====================
+        function initializeMap() {
+            try {
+                console.log('📍 Initializing map...');
+                
+                // Create map
+                map = L.map('map', {
+                    center: [state.userLocation.lat, state.userLocation.lng],
+                    zoom: 15,
+                    zoomControl: true,
+                    attributionControl: true,
+                    dragging: true,
+                    tap: true
+                });
+                
+                console.log('✓ Map instance created');
+                
+                // Add OpenStreetMap tile layer
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19,
+                    minZoom: 1
+                }).addTo(map);
+                
+                console.log('✓ Tile layer added');
+                
+                // Add user marker
+                addUserMarker();
+                
+                // Set up event handlers
+                setupMapEventHandlers();
+                console.log('✓ Event handlers registered');
+                
+                // Simulate runners
+                updateRunners();
+                
+                // Auto-refresh runners every 3 seconds
+                setInterval(updateRunners, 3000);
+                
+                console.log('✅ Map initialized successfully');
+            } catch (error) {
+                console.error('❌ Map initialization error:', error);
+            }
+        }
+        
+        // ==================== MARKERS & LAYERS ====================
+        function addUserMarker() {
+            if (userMarker) userMarker.remove();
+            
+            userMarker = L.circleMarker([state.userLocation.lat, state.userLocation.lng], {
+                radius: 8,
+                fillColor: '#4285f4',
+                color: '#1e40af',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+            
+            userMarker.bindPopup('📍 Your Location');
+        }
+        
+        function addRunnerMarkers() {
+            // Remove old markers
+            runnerMarkers.forEach(marker => marker.remove());
+            runnerMarkers = [];
+            
+            // Only show nearest runner marker
+            if (state.nearestRunner) {
+                const runner = state.nearestRunner;
+                const marker = L.circleMarker([runner.lat, runner.lng], {
+                    radius: 8,
+                    fillColor: '#f44336',
+                    color: '#c62828',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }).addTo(map);
+                
+                marker.bindPopup(`🏃 <b>${runner.name}</b><br>Speed: ${runner.speed} km/h`);
+                runnerMarkers.push(marker);
+            }
+        }
+        
+        // ==================== ROUTE CALCULATION ====================
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371; // Earth radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+        
+        function findNearestRunner() {
+            if (state.runners.length === 0) return;
+            
+            let nearest = null;
+            let minDistance = Infinity;
+            
+            state.runners.forEach(runner => {
+                const distance = calculateDistance(
+                    state.userLocation.lat,
+                    state.userLocation.lng,
+                    runner.lat,
+                    runner.lng
+                );
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = { ...runner, distance };
+                }
+            });
+            
+            state.nearestRunner = nearest;
+            updateRouteDisplay();
+        }
+        
+        function updateRouteDisplay() {
+            const infoEl = document.getElementById('info');
+            
+            if (!state.nearestRunner) {
+                infoEl.innerHTML = '<div class="status-loading">Finding nearest runner...</div>';
+                return;
+            }
+            
+            const runner = state.nearestRunner;
+            const bikePos = bikeActive
+                ? getBikePosition(runner.lat, runner.lng, state.userLocation.lat, state.userLocation.lng, bikeProgress)
+                : null;
+            const distanceKm = bikePos
+                ? calculateDistance(state.userLocation.lat, state.userLocation.lng, bikePos.lat, bikePos.lng)
+                : runner.distance;
+            const time = Math.max(0, Math.round((distanceKm / runner.speed) * 60)); // minutes
+            state.currentDistanceKm = distanceKm;
+            state.currentTimeMin = time;
+            
+            infoEl.innerHTML = `
+                <div class="runner-info">
+                    <div class="runner-name">🏃 ${runner.name}</div>
+                    
+                    <!-- Runner Location -->
+                    <div style="margin-top: 12px; padding: 10px; background: #ffe8e8; border-radius: 4px;">
+                        <div style="font-size: 11px; color: #666; margin-bottom: 4px;"><strong>🏃 Runner Location (Starting Point):</strong></div>
+                        <div style="font-size: 12px; font-weight: bold; color: #c62828; margin-bottom: 6px;">${runner.locationName || 'Tirupati Central'}</div>
+                        <div style="font-size: 11px; font-family: monospace; color: #c62828;">
+                            Latitude: ${runner.lat.toFixed(6)}<br>
+                            Longitude: ${runner.lng.toFixed(6)}
+                        </div>
+                    </div>
+                    
+                    <!-- Your Location -->
+                    <div style="margin-top: 10px; padding: 10px; background: #e3f2fd; border-radius: 4px;">
+                        <div style="font-size: 11px; color: #666; margin-bottom: 4px;"><strong>📍 Your Location (Destination):</strong></div>
+                        <div style="font-size: 12px; font-weight: bold; color: #1e40af; margin-bottom: 6px;">${state.userLocationName || 'Your Location'}</div>
+                        <div style="font-size: 11px; font-family: monospace; color: #1e40af;">
+                            Latitude: ${state.userLocation.lat.toFixed(6)}<br>
+                            Longitude: ${state.userLocation.lng.toFixed(6)}
+                        </div>
+                    </div>
+                    
+                    <!-- Distance & Time -->
+                    <div style="margin-top: 10px; padding: 12px; background: #f0f0f0; border-radius: 4px; border-left: 4px solid #20c997;">
+                        <div style="margin: 5px 0; font-size: 12px;">
+                            <strong>📏 Distance:</strong> <span style="color: #20c997; font-weight: bold;">${distanceKm.toFixed(2)} km</span>
+                        </div>
+                        <div style="margin: 5px 0; font-size: 12px;">
+                            <strong>⏱️ Time to Reach You:</strong> <span style="color: #20c997; font-weight: bold;">${time} minutes</span>
+                        </div>
+                        <div style="margin: 5px 0; font-size: 12px;">
+                            <strong>🚀 Runner Speed:</strong> <span style="color: #666;">${runner.speed} km/h</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Draw route polyline with distance/time label
+            drawRoute(state.userLocation.lat, state.userLocation.lng, runner.lat, runner.lng);
+        }
+
+        function getBikePosition(startLat, startLng, endLat, endLng, progress) {
+            return {
+                lat: startLat + (endLat - startLat) * progress,
+                lng: startLng + (endLng - startLng) * progress
+            };
+        }
+        
+        function drawRoute(lat1, lng1, lat2, lng2) {
+            if (routePolyline) routePolyline.remove();
+            if (routeLabelMarker) routeLabelMarker.remove();
+            if (bikeMarker) bikeMarker.remove();
+            
+            // Route line from RUNNER (lat2, lng2) to USER (lat1, lng1)
+            // Starting point: Runner | Ending point: User
+            routePolyline = L.polyline([
+                [lat2, lng2],  // Start: Runner location
+                [lat1, lng1]   // End: User location
+            ], {
+                color: '#2196f3',
+                weight: 3,
+                opacity: 0.7,
+                dashArray: '5, 5'
+            }).addTo(map);
+            
+            // Add distance label on the polyline
+            if (state.nearestRunner) {
+                const midLat = (lat1 + lat2) / 2;
+                const midLng = (lng1 + lng2) / 2;
+                const distance = (state.currentDistanceKm ?? state.nearestRunner.distance).toFixed(2);
+                const time = Math.max(0, Math.round(((state.currentDistanceKm ?? state.nearestRunner.distance) / state.nearestRunner.speed) * 60));
+                
+                // Create a label marker
+                const labelMarker = L.divIcon({
+                    html: `<div style="background: white; padding: 4px 8px; border-radius: 3px; font-size: 11px; font-weight: bold; border: 1px solid #2196f3; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
+                        ${distance}km, ${time}min
+                    </div>`,
+                    className: '',
+                    iconSize: null
+                });
+                
+                routeLabelMarker = L.marker([midLat, midLng], { icon: labelMarker }).addTo(map);
+            }
+
+            updateBikeMarker(lat1, lng1, lat2, lng2);
+        }
+
+        function updateBikeMarker(lat1, lng1, lat2, lng2) {
+            if (!bikeActive) return;
+
+            const startLat = lat2;
+            const startLng = lng2;
+            const endLat = lat1;
+            const endLng = lng1;
+
+            const bikePos = getBikePosition(startLat, startLng, endLat, endLng, bikeProgress);
+            const bikeLat = bikePos.lat;
+            const bikeLng = bikePos.lng;
+
+            const bikeIcon = L.divIcon({
+                html: '<div style="font-size: 18px; line-height: 1;">🚴‍♂️</div>',
+                className: '',
+                iconSize: [18, 18],
+                iconAnchor: [9, 9]
+            });
+
+            bikeMarker = L.marker([bikeLat, bikeLng], { icon: bikeIcon, interactive: false }).addTo(map);
+        }
+        
+        // ==================== EVENT HANDLERS ====================
+        function setupMapEventHandlers() {
+            map.on('click', (e) => {
+                const { lat, lng } = e.latlng;
+                state.lastClickCoordinates = { lat, lng };
+
+                // Restart bike movement from runner start on click
+                bikeProgress = 0;
+                bikeActive = true;
+                
+                // Show tooltip
+                showCoordinateTooltip(lat, lng);
+                console.log(`📍 Clicked: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            });
+            
+            // Removed double-click destination marker - keep map clean with only runner + user
+        }
+        
+        function showCoordinateTooltip(lat, lng) {
+            const html = `<div class="coordinate-popup">
+                📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
+                <small>Click to copy</small>
+            </div>`;
+            
+            const tooltip = L.popup({
+                autoClose: true,
+                closeButton: false,
+                className: 'coordinate-popup'
+            })
+            .setLatLng([lat, lng])
+            .setContent(html)
+            .openOn(map);
+        }
+        
+        // ==================== RUNNERS UPDATE ====================
+        function updateRunners() {
+            // Simulate runner movement towards user (directed walk)
+            state.runners = simulatedRunners.map(runner => {
+                const userLat = state.userLocation.lat;
+                const userLng = state.userLocation.lng;
+                
+                // Calculate direction vector towards user
+                const dLat = userLat - runner.lat;
+                const dLng = userLng - runner.lng;
+                const distance = Math.sqrt(dLat * dLat + dLng * dLng);
+                
+                // Move towards user if not already there
+                if (distance > 0.0001) {
+                    const stepSize = 0.0008;  // Movement step
+                    const dirLat = dLat / distance;
+                    const dirLng = dLng / distance;
+                    
+                    return {
+                        ...runner,
+                        lat: runner.lat + dirLat * stepSize,
+                        lng: runner.lng + dirLng * stepSize
+                    };
+                }
+                return runner;
+            });
+
+            // Move the bike along the route toward the customer
+            if (bikeActive) {
+                bikeProgress = Math.min(1, bikeProgress + 0.08);
+            }
+            
+            addRunnerMarkers();
+            findNearestRunner();
+        }
+        
+        // ==================== LOCATION FUNCTIONS ====================
+        function getCurrentLocation() {
+            if ('geolocation' in navigator) {
+                document.getElementById('location-display').innerHTML = 
+                    '<div class="status-loading">Getting your location...</div>';
+                
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const { latitude, longitude } = position.coords;
+                        state.userLocation = { lat: latitude, lng: longitude };
+                        
+                        addUserMarker();
+                        map.setView([latitude, longitude], 15);
+                        
+                        document.getElementById('location-display').innerHTML = `
+                            <div class="route-info">
+                                <strong>📍 GPS Location:</strong><br>
+                                ${latitude.toFixed(6)}, ${longitude.toFixed(6)}
+                            </div>
+                        `;
+                        
+                        findNearestRunner();
+                    },
+                    (error) => {
+                        document.getElementById('location-display').innerHTML = 
+                            '<div style="color: #f44336; font-weight: 500;">❌ Location access denied</div>';
+                        console.error('Geolocation error:', error);
+                    }
+                );
+            }
+        }
+        
+        function saveFavoriteLocation() {
+            if (!state.selectedLocation && !state.userLocation) {
+                alert('Set a location first');
+                return;
+            }
+            
+            const location = state.selectedLocation || state.userLocation;
+            const name = prompt('Location name:', `Location ${state.savedLocations.length + 1}`);
+            
+            if (name) {
+                state.savedLocations.push({
+                    name,
+                    lat: location.lat,
+                    lng: location.lng
+                });
+                
+                refreshFavoritesList();
+            }
+        }
+        
+        function refreshFavoritesList() {
+            const list = document.getElementById('favorites-list');
+            
+            if (state.savedLocations.length === 0) {
+                list.innerHTML = '<div style="color: #999; font-size: 12px; text-align: center; padding: 20px 0;">No saved locations yet</div>';
+                return;
+            }
+            
+            list.innerHTML = state.savedLocations.map((loc, idx) => `
+                <div class="favorite-item">
+                    <span onclick="goToFavorite(${idx})">📍 ${loc.name}</span>
+                    <button class="delete-btn" onclick="deleteFavorite(${idx})">Delete</button>
+                </div>
+            `).join('');
+        }
+        
+        function goToFavorite(idx) {
+            const loc = state.savedLocations[idx];
+            state.selectedLocation = { lat: loc.lat, lng: loc.lng };
+            map.setView([loc.lat, loc.lng], 15);
+        }
+        
+        function deleteFavorite(idx) {
+            state.savedLocations.splice(idx, 1);
+            refreshFavoritesList();
+        }
+        
+        // ==================== TAB MANAGEMENT ====================
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // ==================== INITIALIZATION ====================
+        function start() {
+            console.log('📋 Starting application...');
+            
+            // Wait for Leaflet to be loaded
+            if (typeof L === 'undefined') {
+                console.error('❌ Leaflet library not loaded');
+                setTimeout(start, 100);
+                return;
+            }
+            
+            console.log('✓ Leaflet library available');
+            initializeMap();
+        }
+        
+        // Start when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', start);
+        } else {
+            setTimeout(start, 100);
+        }
+    </script>
+</body>
+</html>

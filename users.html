@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>User Portal</title>
+    <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet"/>
+
+    <style>
+        body { margin:0; padding:0; }
+        #map { height:100vh; width:100vw; }
+
+        #panel {
+            position:absolute;
+            bottom:20px;
+            left:10px;
+            background:white;
+            padding:15px;
+            z-index:1000;
+            border:1px solid gray;
+            border-radius:5px;
+            font-family: Arial;
+            font-size:14px;
+            line-height:1.6;
+            max-width:300px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .marker-user {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="blue"><circle cx="12" cy="12" r="8"/></svg>');
+            background-size: 100%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+        }
+
+        .marker-runner {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red"><circle cx="12" cy="12" r="8"/></svg>');
+            background-size: 100%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div id="panel">Loading route...</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+
+<script>
+
+const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+        version: 8,
+        sources: {
+            osm: {
+                type: 'raster',
+                tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                tileSize: 256,
+                attribution: '© OpenStreetMap Contributors'
+            }
+        },
+        layers: [
+            {
+                id: 'osm-layer',
+                type: 'raster',
+                source: 'osm'
+            }
+        ]
+    },
+    center: [79.4192, 13.6288],
+    zoom: 13
+});
+
+// ✅ Fixed demo user
+var user = { lat: 13.6288, lon: 79.4192 };
+
+// ✅ Single runner
+var runner = { id: "Runner 1", lat: 13.6350, lon: 79.4200 };
+
+// Add markers after map loads
+map.on('load', () => {
+
+    // User marker
+    var userMarker = document.createElement('div');
+    userMarker.className = 'marker-user';
+    new maplibregl.Marker(userMarker)
+        .setLngLat([user.lon, user.lat])
+        .setPopup(new maplibregl.Popup().setHTML('<b>You</b>'))
+        .addTo(map);
+
+    // Runner marker
+    var runnerMarker = document.createElement('div');
+    runnerMarker.className = 'marker-runner';
+    new maplibregl.Marker(runnerMarker)
+        .setLngLat([runner.lon, runner.lat])
+        .setPopup(new maplibregl.Popup().setHTML('<b>' + runner.id + '</b>'))
+        .addTo(map);
+
+    // Draw route
+    var url = `https://router.project-osrm.org/route/v1/driving/${user.lon},${user.lat};${runner.lon},${runner.lat}?overview=full&geometries=geojson`;
+
+    fetch(url)
+        .then(res => res.json())
+        .then(data => {
+
+            var route = data.routes[0].geometry;
+
+            // Add route source and layer
+            map.addSource('route', {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    geometry: route
+                }
+            });
+
+            map.addLayer({
+                id: 'route-layer',
+                type: 'line',
+                source: 'route',
+                paint: {
+                    'line-width': 4,
+                    'line-color': '#0a8cff'
+                }
+            });
+
+            var distanceMeters = data.routes[0].distance;
+            var durationSeconds = data.routes[0].duration;
+
+            var distanceKm = (distanceMeters / 1000).toFixed(2);
+            var durationMin = (durationSeconds / 60).toFixed(1);
+
+            document.getElementById("panel").innerHTML =
+                "<b>User</b><br>" +
+                user.lat.toFixed(6) + ", " + user.lon.toFixed(6) +
+
+                "<br><br><b>Runner</b><br>" +
+                runner.lat.toFixed(6) + ", " + runner.lon.toFixed(6) +
+
+                "<br><br><b>Travel Info</b><br>" +
+                "Distance: " + distanceKm + " km<br>" +
+                "Time: " + durationMin + " mins";
+        });
+});
+
+</script>
+</body>
+</html>

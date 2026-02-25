@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Portal - Runner Tracking</title>
+    <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet"/>
+
+    <style>
+        body { margin:0; padding:0; font-family: Arial, sans-serif; background: #f0f0f0; }
+        html { margin:0; padding:0; }
+        #map { position: fixed; top: 0; left: 0; height: 100vh; width: 100vw; z-index: 1; background: #e0e0e0; }
+
+        #panel {
+            position:absolute;
+            top:10px;
+            right:10px;
+            background:white;
+            padding:15px;
+            z-index:1000;
+            border:1px solid #ddd;
+            border-radius:5px;
+            font-size:13px;
+            min-width:220px;
+            max-height:80vh;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            overflow-y: auto;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #eee;
+        }
+
+        .tab-btn {
+            padding: 6px 10px;
+            background: #f0f0f0;
+            border: none;
+            cursor: pointer;
+            border-radius: 3px 3px 0 0;
+            font-size: 11px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .runner-item {
+            padding: 10px;
+            margin: 6px 0;
+            background: #f5f5f5;
+            border-left: 4px solid #ff6b6b;
+            cursor: pointer;
+            border-radius: 3px;
+            transition: all 0.2s;
+        }
+
+        .runner-item:hover {
+            background: #efefef;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+        }
+
+        .runner-name {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .runner-status {
+            font-size: 11px;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        .marker-runner {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red"><circle cx="12" cy="12" r="8"/></svg>');
+            background-size: 100%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+        }
+
+        .coordinate-popup {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: auto;
+            z-index: 2000;
+            white-space: nowrap;
+        }
+
+        .info-title {
+            font-weight: bold;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            border-bottom: 1px solid #ddd;
+            padding-bottom: 5px;
+        }
+
+        .coordinate-item {
+            padding: 8px;
+            background: #f9f9f9;
+            border-left: 3px solid #ffd700;
+            border-radius: 3px;
+            margin: 6px 0;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .coordinate-item:hover {
+            background: #f5f5f5;
+        }
+
+        .copy-btn {
+            padding: 4px 8px;
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            margin: 2px;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: #36a399;
+        }
+
+        .button {
+            padding: 6px 10px;
+            background: #4ecdc4;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 11px;
+            width: 100%;
+            margin-top: 5px;
+            transition: all 0.2s;
+        }
+
+        .button:hover {
+            background: #36a399;
+        }
+
+        .instruction {
+            padding: 8px;
+            background: #e7f5ff;
+            border-left: 3px solid #1971c2;
+            border-radius: 3px;
+            font-size: 11px;
+            color: #0550ae;
+            margin-bottom: 10px;
+        }
+
+        /* MapLibre GL Styles */
+        .maplibregl-canvas { display: block; }
+    </style>
+</head>
+<body>
+
+<div id="panel">
+    <b>🚴 Runner Tracking (Admin)</b>
+    <hr style="margin: 8px 0;">
+    
+    <!-- Tabs -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('runners')">Runners</button>
+        <button class="tab-btn" onclick="switchTab('clicks')">Clicks</button>
+    </div>
+
+    <!-- Runners Tab -->
+    <div id="runners" class="tab-content active">
+        <div class="instruction">
+            📍 Single Click: Show coordinates
+        </div>
+        <div id="runners-list">Loading runners...</div>
+    </div>
+
+    <!-- Coordinate Clicks Tab -->
+    <div id="clicks" class="tab-content">
+        <div class="instruction">
+            Log of all map clicks with coordinates
+        </div>
+        <button class="button" onclick="refreshCoordinateLogs()">🔄 Refresh Logs</button>
+        <div id="coordinates-log" style="margin-top: 10px;">
+            <div style="text-align: center; color: #666; padding: 10px;">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<div id="coordinate-tooltip" class="coordinate-popup" style="display: none;"></div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+
+<script>
+
+// ==================== MAP INITIALIZATION ====================
+
+let map;
+
+function initializeMap() {
+    try {
+        // Check if map container exists
+        const mapContainer = document.getElementById('map');
+        if (!mapContainer) {
+            console.error('❌ Map container not found');
+            return;
+        }
+        console.log('✓ Map container found');
+        
+        // Check if MapLibre GL is available
+        if (typeof maplibregl === 'undefined') {
+            console.error('❌ MapLibre GL not loaded from CDN');
+            return;
+        }
+        console.log('✓ MapLibre GL library loaded');
+        
+        // Create map instance
+        map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {
+                    osm: {
+                        type: 'raster',
+                        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                        tileSize: 256,
+                        attribution: '© OpenStreetMap Contributors'
+                    }
+                },
+                layers: [
+                    {
+                        id: 'osm-layer',
+                        type: 'raster',
+                        source: 'osm'
+                    }
+                ]
+            },
+            center: [79.4192, 13.6288],
+            zoom: 13,
+            attributionControl: true
+        });
+        console.log('✓ Map instance created');
+        
+        // Setup event handlers
+        setupMapEventHandlers();
+        console.log('✓ Event handlers registered');
+        
+        // Wait for map to load
+        map.on('load', () => {
+            console.log('✅ Admin map tiles loaded successfully');
+            updateRunners();
+        });
+        
+        map.on('error', function(e) {
+            console.error('❌ Map error:', e.error || e);
+        });
+        
+        map.on('sourcedataloading', function() {
+            console.log('↓ Loading map tiles...');
+        });
+        
+    } catch (error) {
+        console.error('❌ Failed to initialize admin map:', error);
+    }
+}
+
+function setupMapEventHandlers() {
+    if (!map) {
+        console.error('❌ Map object not available for setting up event handlers');
+        return;
+    }
+    
+    // Single click on map to show coordinates
+    map.on('click', function(e) {
+        const lngLat = e.lngLat;
+        
+        // Show tooltip
+        showCoordinateTooltip(lngLat, e.originalEvent.clientX, e.originalEvent.clientY);
+        
+        // Log to server
+        logCoordinateToServer(lngLat.lat, lngLat.lng);
+        
+        console.log('📍 Clicked coordinates:', formatCoordinates(lngLat.lat, lngLat.lng));
+    });
+}
+
+// ==================== STATE & CONFIG ====================
+
+const state = {
+    markers: {},
+    routeLayers: {},
+    runners: []
+};
+
+const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f7dc6f', '#bb8fce'];
+
+// ==================== TAB MANAGEMENT ====================
+
+function switchTab(tabName) {
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    document.getElementById(tabName).classList.add('active');
+    event.target.classList.add('active');
+    
+    if (tabName === 'clicks') {
+        refreshCoordinateLogs();
+    }
+}
+
+// ==================== COORDINATE DISPLAY ====================
+
+/**
+ * Format coordinates as "Lat: xx.xxxxx, Lng: xx.xxxxx"
+ */
+function formatCoordinates(lat, lon) {
+    return `Lat: ${lat.toFixed(6)}, Lon: ${lon.toFixed(6)}`;
+}
+
+/**
+ * Display coordinate tooltip at map position
+ */
+function showCoordinateTooltip(lngLat, clientX, clientY) {
+    const tooltip = document.getElementById('coordinate-tooltip');
+    const text = formatCoordinates(lngLat.lat, lngLat.lng);
+    
+    tooltip.innerHTML = `
+        ${text}<br>
+        <button class="copy-btn" onclick="copyToClipboard('${lngLat.lat.toFixed(6)}, ${lngLat.lng.toFixed(6)}')">Copy</button>
+    `;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (clientX + 10) + 'px';
+    tooltip.style.top = (clientY + 10) + 'px';
+    
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+        tooltip.style.display = 'none';
+    }, 3000);
+}
+
+/**
+ * Copy text to clipboard
+ */
+function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+        alert('✓ Coordinates copied!');
+    }).catch(err => {
+        console.error('Copy failed:', err);
+    });
+}
+
+// ==================== MAP CLICK EVENT ====================
+
+/**
+ * NOTE: Single click event handler is now set up in setupMapEventHandlers() 
+ * called during map initialization
+ */
+
+// ==================== SERVER API CALLS ====================
+
+async function logCoordinateToServer(lat, lng) {
+    try {
+        await fetch(`/api/coordinates/log?lat=${lat}&lng=${lng}`);
+    } catch (error) {
+        console.error('Error logging coordinate:', error);
+    }
+}
+
+async function refreshCoordinateLogs() {
+    try {
+        const response = await fetch('/api/coordinates/log');
+        const data = await response.json();
+        const coordinates = data.coordinates || [];
+        
+        const logEl = document.getElementById('coordinates-log');
+        
+        if (coordinates.length === 0) {
+            logEl.innerHTML = '<div style="text-align: center; color: #666; padding: 10px;">No clicks logged yet</div>';
+            return;
+        }
+        
+        // Show latest clicks first
+        const sortedCoords = [...coordinates].reverse();
+        logEl.innerHTML = sortedCoords.map((coord, idx) => `
+            <div class="coordinate-item" onclick="goToCoordinate(${coord.latitude}, ${coord.longitude})">
+                <div style="font-weight: bold;">
+                    ${formatCoordinates(coord.latitude, coord.longitude)}
+                </div>
+                <div style="font-size: 10px; color: #999;">
+                    ${new Date(coord.timestamp).toLocaleTimeString()}
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error fetching coordinate logs:', error);
+        document.getElementById('coordinates-log').innerHTML = 
+            '<div style="color: #f00;">Error loading logs</div>';
+    }
+}
+
+function goToCoordinate(lat, lon) {
+    map.flyTo({center: [lon, lat], zoom: 16, duration: 1000});
+}
+
+// ==================== RUNNER TRACKING ====================
+
+async function updateRunners() {
+    try {
+        const response = await fetch('/api/runners');
+        const runners = await response.json();
+        state.runners = runners;
+
+        // Update runners list in panel
+        const runnersList = document.getElementById('runners-list');
+        runnersList.innerHTML = runners.map((r, idx) => 
+            `<div class="runner-item" onclick="focusRunner(${r.id})">
+                <div class="runner-name" style="color: ${colors[idx % colors.length]}">${r.name} (ID: ${r.id})</div>
+                <div class="runner-status">📍 ${r.lat.toFixed(6)}, ${r.lon.toFixed(6)}</div>
+                <div class="runner-status">Status: ${r.status}</div>
+            </div>`
+        ).join('');
+
+        runners.forEach((r, idx) => {
+            const color = colors[idx % colors.length];
+
+            // Create marker if it doesn't exist
+            if (!state.markers[r.id]) {
+                var runnerMarker = document.createElement('div');
+                runnerMarker.className = 'marker-runner';
+                
+                var marker = new maplibregl.Marker(runnerMarker)
+                    .setLngLat([r.lon, r.lat])
+                    .addTo(map);
+
+                marker.getElement().addEventListener('click', function() {
+                    focusRunner(r.id);
+                });
+
+                state.markers[r.id] = marker;
+            } else {
+                // Update marker position
+                state.markers[r.id].setLngLat([r.lon, r.lat]);
+            }
+
+            // Remove old route layer and source
+            if (map.getLayer('route-layer-' + r.id)) {
+                map.removeLayer('route-layer-' + r.id);
+            }
+            if (map.getSource('route-' + r.id)) {
+                map.removeSource('route-' + r.id);
+            }
+
+            // Draw runner movement trail (history path)
+            if (r.history && r.history.length > 1) {
+                map.addSource('route-' + r.id, {
+                    type: 'geojson',
+                    data: {
+                        type: 'Feature',
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: r.history.map(h => [h[1], h[0]])  // [lon, lat]
+                        }
+                    }
+                });
+
+                map.addLayer({
+                    id: 'route-layer-' + r.id,
+                    type: 'line',
+                    source: 'route-' + r.id,
+                    paint: {
+                        'line-width': 2.5,
+                        'line-color': color,
+                        'line-opacity': 0.7
+                    }
+                });
+
+                state.routeLayers[r.id] = 'route-layer-' + r.id;
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching runners:', error);
+    }
+}
+
+function focusRunner(runnerId) {
+    const runner = state.runners.find(r => r.id === runnerId);
+    if (runner) {
+        map.flyTo({
+            center: [runner.lon, runner.lat],
+            zoom: 15,
+            duration: 1000
+        });
+    }
+}
+
+// ==================== INITIALIZATION ====================
+
+// Initialize map and set up auto-refresh
+function start() {
+    console.log('📋 Starting admin map initialization...');
+    console.log('Document ready state:', document.readyState);
+    initializeMap();
+    
+    // Update runners every 3 seconds  
+    setInterval(updateRunners, 3000);
+}
+
+if (document.readyState === 'loading') {
+    console.log('⏳ Waiting for DOM to load...');
+    document.addEventListener('DOMContentLoaded', start);
+} else {
+    console.log('📄 DOM already loaded');
+    // Give MapLibre GL library a moment to be sure it's ready
+    setTimeout(start, 100);
+}

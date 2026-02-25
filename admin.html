@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Portal</title>
+    <link href="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.css" rel="stylesheet"/>
+
+    <style>
+        body { margin:0; padding:0; }
+        #map { height:100vh; width:100vw; }
+
+        #panel {
+            position:absolute;
+            top:10px;
+            right:10px;
+            background:white;
+            padding:15px;
+            z-index:1000;
+            border:1px solid gray;
+            border-radius:5px;
+            font-family: Arial;
+            font-size:14px;
+            min-width:180px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+
+        .marker-runner {
+            background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="red"><circle cx="12" cy="12" r="8"/></svg>');
+            background-size: 100%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div id="panel"><b>Runner Info</b><br>Click any runner</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/maplibre-gl@latest/dist/maplibre-gl.js"></script>
+
+<script>
+
+const map = new maplibregl.Map({
+    container: 'map',
+    style: {
+        version: 8,
+        sources: {
+            osm: {
+                type: 'raster',
+                tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                tileSize: 256,
+                attribution: '© OpenStreetMap Contributors'
+            }
+        },
+        layers: [
+            {
+                id: 'osm-layer',
+                type: 'raster',
+                source: 'osm'
+            }
+        ]
+    },
+    center: [79.4192, 13.6288],
+    zoom: 13
+});
+
+// ✅ Dummy runners
+var runners = [
+ {id:"R1", lat:13.6288, lon:79.4192, history:[]},
+ {id:"R2", lat:13.6350, lon:79.4200, history:[]},
+ {id:"R3", lat:13.6200, lon:79.4150, history:[]},
+ {id:"R4", lat:13.6400, lon:79.4300, history:[]},
+ {id:"R5", lat:13.6100, lon:79.4250, history:[]}
+];
+
+var markers = {};
+var lines = {};
+
+// Initialize map and markers
+map.on('load', () => {
+
+    runners.forEach(r => {
+
+        var runnerMarker = document.createElement('div');
+        runnerMarker.className = 'marker-runner';
+        
+        var marker = new maplibregl.Marker(runnerMarker)
+            .setLngLat([r.lon, r.lat])
+            .addTo(map);
+
+        marker.getElement().addEventListener('click', function() {
+            document.getElementById("panel").innerHTML =
+                "<b>" + r.id + "</b><br>" +
+                "Lat: " + r.lat.toFixed(6) + "<br>" +
+                "Lon: " + r.lon.toFixed(6);
+        });
+
+        markers[r.id] = marker;
+
+        // Store initial point
+        r.history.push([r.lat, r.lon]);
+    });
+
+});
+
+// Dummy movement + route drawing
+setInterval(() => {
+
+    runners.forEach(r => {
+
+        // Fake movement
+        r.lat += (Math.random() - 0.5) * 0.001;
+        r.lon += (Math.random() - 0.5) * 0.001;
+
+        // Update marker position
+        markers[r.id].setLngLat([r.lon, r.lat]);
+
+        // Store new point
+        r.history.push([r.lat, r.lon]);
+
+        // Remove old layer and source
+        if (map.getLayer('route-layer-' + r.id)) {
+            map.removeLayer('route-layer-' + r.id);
+        }
+        if (map.getSource('route-' + r.id)) {
+            map.removeSource('route-' + r.id);
+        }
+
+        // Draw full movement path
+        if (r.history.length > 1) {
+            map.addSource('route-' + r.id, {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: r.history.map(h => [h[1], h[0]])
+                    }
+                }
+            });
+
+            map.addLayer({
+                id: 'route-layer-' + r.id,
+                type: 'line',
+                source: 'route-' + r.id,
+                paint: {
+                    'line-width': 3,
+                    'line-color': '#ff6b6b'
+                }
+            });
+        }
+    });
+
+}, 3000);
+
+</script>
+</body>
+</html>

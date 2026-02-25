@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Portal - Runner Tracking</title>
+    
+    <!-- Leaflet CSS - CRITICAL FOR MAP DISPLAY -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            overflow: hidden;
+        }
+        
+        html, body {
+            height: 100%;
+            width: 100%;
+        }
+        
+        #map {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 100%;
+            z-index: 1;
+            background-color: #e8e8e8;
+        }
+        
+        .leaflet-container {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        /* Panel Styling */
+        #panel {
+            position: fixed;
+            bottom: 15px;
+            right: 15px;
+            background: white;
+            padding: 18px;
+            z-index: 1000;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 13px;
+            width: 380px;
+            max-height: 75vh;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            overflow-y: auto;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .panel-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            color: #333;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .panel-title::before {
+            content: "🏃";
+            font-size: 18px;
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid #eee;
+        }
+        
+        .tab-btn {
+            padding: 8px 16px;
+            background: #f0f0f0;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px 4px 0 0;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s;
+            color: #666;
+        }
+        
+        .tab-btn:hover {
+            background: #e0e0e0;
+        }
+        
+        .tab-btn.active {
+            background: #f44336;
+            color: white;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .instruction {
+            background: #f9f9f9;
+            padding: 10px;
+            border-left: 3px solid #f44336;
+            margin-bottom: 12px;
+            font-size: 12px;
+            color: #555;
+            line-height: 1.5;
+        }
+        
+        #runners-list {
+            margin-top: 10px;
+        }
+        
+        .runner-item {
+            background: #fff3e0;
+            padding: 10px;
+            margin: 8px 0;
+            border-radius: 4px;
+            border-left: 3px solid #ff9800;
+            font-size: 12px;
+        }
+        
+        .runner-name {
+            font-weight: bold;
+            color: #e65100;
+            font-size: 13px;
+            margin-bottom: 5px;
+        }
+        
+        .runner-coords {
+            font-size: 11px;
+            color: #666;
+            margin: 3px 0;
+            font-family: monospace;
+        }
+        
+        #clicks-list {
+            margin-top: 10px;
+        }
+        
+        .click-item {
+            background: #e3f2fd;
+            padding: 10px;
+            margin: 8px 0;
+            border-radius: 4px;
+            border-left: 3px solid #2196f3;
+            font-size: 12px;
+        }
+        
+        .click-coords {
+            font-weight: bold;
+            color: #1976d2;
+            font-family: monospace;
+        }
+        
+        .click-time {
+            color: #666;
+            font-size: 11px;
+            margin-top: 3px;
+        }
+        
+        .status-loading {
+            color: #ff9800;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-loading::before {
+            content: "⏳";
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .coordinate-popup {
+            background: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+            pointer-events: auto;
+            z-index: 2000 !important;
+        }
+        
+        /* Scrollbar styling */
+        #panel::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        #panel::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        
+        #panel::-webkit-scrollbar-thumb {
+            background: #c0c0c0;
+            border-radius: 3px;
+        }
+        
+        #panel::-webkit-scrollbar-thumb:hover {
+            background: #a0a0a0;
+        }
+    </style>
+</head>
+<body>
+    <!-- Map Container -->
+    <div id="map"></div>
+    
+    <!-- Control Panel -->
+    <div id="panel">
+        <div class="panel-title">Runner Tracking (Admin)</div>
+        
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('runners')">Runners</button>
+            <button class="tab-btn" onclick="switchTab('clicks')">Clicks</button>
+        </div>
+        
+        <!-- Runners Tab -->
+        <div id="runners" class="tab-content active">
+            <div class="instruction">
+                📍 <strong>Single Click:</strong> Show coordinates<br>
+                🏃 All runners visible in real-time
+            </div>
+            <div id="runners-list">
+                <div class="status-loading">Loading runners...</div>
+            </div>
+        </div>
+        
+        <!-- Clicks Tab -->
+        <div id="clicks" class="tab-content">
+            <div class="instruction">
+                📍 Coordinates logged on each click
+            </div>
+            <div id="clicks-list">
+                <div style="color: #999; font-size: 12px; text-align: center; padding: 20px 0;">No clicks yet</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // ==================== STATE ====================
+        let map = null;
+        let runnerMarkers = {};
+        let clickMarkers = [];
+        let runnerTrails = {};
+        
+        const state = {
+            mapCenter: { lat: 13.6288, lng: 79.4192 },
+            runners: [],
+            clicks: [],
+            updateInterval: null
+        };
+        
+        // Simulated runners data - 10 dummy runners with movement
+        const simulatedRunners = [
+            { id: 1, name: 'Runner 1', lat: 13.6280, lng: 79.4180, speed: 15 },
+            { id: 2, name: 'Runner 2', lat: 13.6300, lng: 79.4200, speed: 12 },
+            { id: 3, name: 'Runner 3', lat: 13.6320, lng: 79.4220, speed: 18 },
+            { id: 4, name: 'Runner 4', lat: 13.6250, lng: 79.4150, speed: 14 },
+            { id: 5, name: 'Runner 5', lat: 13.6350, lng: 79.4250, speed: 16 },
+            { id: 6, name: 'Runner 6', lat: 13.6270, lng: 79.4270, speed: 13 },
+            { id: 7, name: 'Runner 7', lat: 13.6330, lng: 79.4110, speed: 17 },
+            { id: 8, name: 'Runner 8', lat: 13.6210, lng: 79.4240, speed: 11 },
+            { id: 9, name: 'Runner 9', lat: 13.6290, lng: 79.4160, speed: 19 },
+            { id: 10, name: 'Runner 10', lat: 13.6360, lng: 79.4290, speed: 14 }
+        ];
+        
+        // ==================== MAP INITIALIZATION ====================
+        function initializeMap() {
+            try {
+                console.log('🏃 Initializing admin map...');
+                
+                // Create map
+                map = L.map('map', {
+                    center: [state.mapCenter.lat, state.mapCenter.lng],
+                    zoom: 15,
+                    zoomControl: true,
+                    attributionControl: true,
+                    dragging: true,
+                    tap: true
+                });
+                
+                console.log('✓ Map instance created');
+                
+                // Add tile layer with multiple reliable providers
+                const primaryTileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19,
+                    minZoom: 1
+                });
+                
+                // Fallback tile layer (CartoDB)
+                const fallbackTileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+                    attribution: '© CartoDB',
+                    maxZoom: 20
+                });
+                
+                // Try primary tile layer
+                primaryTileLayer.addTo(map);
+                
+                // Set timeout to switch to fallback if primary fails
+                setTimeout(() => {
+                    if (!primaryTileLayer.getContainer() || primaryTileLayer.getContainer().childNodes.length === 0) {
+                        console.warn('⚠️ Primary tiles not loaded, switching to fallback...');
+                        map.removeLayer(primaryTileLayer);
+                        fallbackTileLayer.addTo(map);
+                    }
+                }, 2000);
+                
+                console.log('✓ Tile layers configured');
+                
+                // Set up event handlers
+                setupMapEventHandlers();
+                console.log('✓ Event handlers registered');
+                
+                // Initialize runners
+                updateRunners();
+                
+                // Auto-refresh runners every 3 seconds
+                state.updateInterval = setInterval(updateRunners, 3000);
+                
+                console.log('✅ Admin map initialized successfully');
+            } catch (error) {
+                console.error('❌ Map initialization error:', error);
+            }
+        }
+        
+        // ==================== RUNNERS MANAGEMENT ====================
+        function updateRunners() {
+            // Simulate runner movement (random walk with larger step)
+            state.runners = simulatedRunners.map(runner => ({
+                ...runner,
+                lat: runner.lat + (Math.random() - 0.5) * 0.005,  // Increased movement
+                lng: runner.lng + (Math.random() - 0.5) * 0.005   // Increased movement
+            }));
+            
+            updateRunnerMarkers();
+            updateRunnersList();
+            
+            // Log updates
+            console.log(`📍 Updated ${state.runners.length} runners`);
+        }
+        
+        function updateRunnerMarkers() {
+            state.runners.forEach(runner => {
+                if (!runnerMarkers[runner.id]) {
+                    // Create new marker with larger radius for visibility
+                    const marker = L.circleMarker([runner.lat, runner.lng], {
+                        radius: 12,  // Increased from 8 to 12
+                        fillColor: '#ff6b6b',  // Bright red
+                        color: '#c00000',      // Dark red
+                        weight: 2,
+                        opacity: 1,
+                        fillOpacity: 0.95
+                    }).addTo(map);
+                    
+                    marker.bindPopup(`
+                        <div style="font-size: 12px;">
+                            <b>🏃 ${runner.name}</b><br>
+                            Latitude: ${runner.lat.toFixed(6)}<br>
+                            Longitude: ${runner.lng.toFixed(6)}<br>
+                            Speed: ${runner.speed} km/h
+                        </div>
+                    `);
+                    
+                    runnerMarkers[runner.id] = marker;
+                    
+                    // Initialize trail
+                    runnerTrails[runner.id] = [];
+                    console.log(`✓ Created marker for ${runner.name}`);
+                } else {
+                    // Update existing marker position
+                    runnerMarkers[runner.id].setLatLng([runner.lat, runner.lng]);
+                }
+                
+                // Store position in trail
+                if (!runnerTrails[runner.id]) runnerTrails[runner.id] = [];
+                runnerTrails[runner.id].push([runner.lat, runner.lng]);
+                
+                // Keep only last 15 positions
+                if (runnerTrails[runner.id].length > 15) {
+                    runnerTrails[runner.id].shift();
+                }
+                
+                // Draw trail
+                drawTrail(runner.id);
+            });
+        }
+        
+        function drawTrail(runnerId) {
+            const trail = runnerTrails[runnerId];
+            if (!trail || trail.length < 2) return;
+            
+            // Remove old trail if exists
+            if (runnerMarkers[`trail_${runnerId}`]) {
+                map.removeLayer(runnerMarkers[`trail_${runnerId}`]);
+            }
+            
+            // Draw new trail with better visibility
+            const polyline = L.polyline(trail, {
+                color: '#ff6b6b',       // Bright red
+                weight: 3,              // Increased from 2
+                opacity: 0.7,           // Increased from 0.5
+                dashArray: '4, 4'       // Clear dashes
+            }).addTo(map);
+            
+            runnerMarkers[`trail_${runnerId}`] = polyline;
+        }
+        
+        function updateRunnersList() {
+            const list = document.getElementById('runners-list');
+            
+            if (state.runners.length === 0) {
+                list.innerHTML = '<div class="status-loading">Loading runners...</div>';
+                return;
+            }
+            
+            list.innerHTML = state.runners.map(runner => `
+                <div class="runner-item">
+                    <div class="runner-name">🏃 ${runner.name}</div>
+                    <div class="runner-coords">
+                        Latitude: ${runner.lat.toFixed(6)}<br>
+                        Longitude: ${runner.lng.toFixed(6)}<br>
+                        Speed: ${runner.speed} km/h
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // ==================== EVENT HANDLERS ====================
+        function setupMapEventHandlers() {
+            map.on('click', (e) => {
+                const { lat, lng } = e.latlng;
+                
+                // Show tooltip
+                showCoordinateTooltip(lat, lng);
+                
+                // Log click
+                logCoordinateClick(lat, lng);
+                
+                console.log(`📍 Admin clicked: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+            });
+        }
+        
+        function showCoordinateTooltip(lat, lng) {
+            const html = `<div class="coordinate-popup">
+                📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}
+            </div>`;
+            
+            const tooltip = L.popup({
+                autoClose: true,
+                closeButton: false,
+                className: 'coordinate-popup'
+            })
+            .setLatLng([lat, lng])
+            .setContent(html)
+            .openOn(map);
+        }
+        
+        function logCoordinateClick(lat, lng) {
+            // Add to clicks list
+            state.clicks.unshift({
+                lat: lat.toFixed(6),
+                lng: lng.toFixed(6),
+                time: new Date().toLocaleTimeString()
+            });
+            
+            // Keep only last 20 clicks
+            if (state.clicks.length > 20) {
+                state.clicks.pop();
+            }
+            
+            updateClicksList();
+            
+            // Add marker on map
+            const marker = L.circleMarker([lat, lng], {
+                radius: 5,
+                fillColor: '#2196f3',
+                color: '#1976d2',
+                weight: 2,
+                opacity: 1,
+                fillOpacity: 0.7
+            }).addTo(map);
+            
+            clickMarkers.push(marker);
+            
+            // Remove old markers if too many
+            if (clickMarkers.length > 30) {
+                const oldMarker = clickMarkers.shift();
+                map.removeLayer(oldMarker);
+            }
+        }
+        
+        function updateClicksList() {
+            const list = document.getElementById('clicks-list');
+            
+            if (state.clicks.length === 0) {
+                list.innerHTML = '<div style="color: #999; font-size: 12px; text-align: center; padding: 20px 0;">No clicks yet</div>';
+                return;
+            }
+            
+            list.innerHTML = state.clicks.map((click, idx) => `
+                <div class="click-item">
+                    <div class="click-coords">📍 ${click.lat}, ${click.lng}</div>
+                    <div class="click-time">🕐 ${click.time}</div>
+                </div>
+            `).join('');
+        }
+        
+        // ==================== TAB MANAGEMENT ====================
+        function switchTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // ==================== INITIALIZATION ====================
+        function start() {
+            console.log('📋 Starting admin application...');
+            
+            // Wait for Leaflet to be loaded
+            if (typeof L === 'undefined') {
+                console.error('❌ Leaflet library not loaded');
+                setTimeout(start, 100);
+                return;
+            }
+            
+            console.log('✓ Leaflet library available');
+            initializeMap();
+        }
+        
+        // Start when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', start);
+        } else {
+            setTimeout(start, 100);
+        }
+    </script>
+</body>
+</html>
