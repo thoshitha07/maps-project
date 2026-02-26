@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>User Portal - Find Nearest Runner</title>
+    <title>User Portal - Delivery Tracking</title>
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
@@ -90,18 +90,20 @@
             gap: 5px;
             margin-bottom: 12px;
             border-bottom: 2px solid #eee;
+            flex-wrap: wrap;
         }
         
         .tab-btn {
-            padding: 8px 16px;
+            padding: 8px 12px;
             background: #f0f0f0;
             border: none;
             cursor: pointer;
             border-radius: 4px 4px 0 0;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 500;
             transition: all 0.2s;
             color: #666;
+            white-space: nowrap;
         }
         
         .tab-btn:hover {
@@ -183,6 +185,37 @@
             margin-top: 5px;
         }
         
+        /* OSRM Route Label */
+        .route-label {
+            background: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #1976d2;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: fadeInScale 0.5s ease-out;
+        }
+        
+        @keyframes fadeInScale {
+            from {
+                opacity: 0;
+                transform: scale(0.8);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        .route-label-icon {
+            font-size: 14px;
+        }
+        
         .runner-info {
             background: #fff3e0;
             padding: 10px;
@@ -217,6 +250,45 @@
         
         .btn:active {
             background: #0f7c54;
+        }
+
+        .btn-primary {
+            background: #4c8cff;
+            margin-top: 0;
+        }
+
+        .btn-primary:hover {
+            background: #357ad8;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        .badge-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-approved {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-assigned {
+            background: #cfe2ff;
+            color: #084298;
+        }
+
+        .badge-rejected {
+            background: #f8d7da;
+            color: #721c24;
         }
         
         .coordinate-popup {
@@ -297,7 +369,21 @@
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('route')">Route</button>
             <button class="tab-btn" onclick="switchTab('location')">Location</button>
+            <button class="tab-btn" onclick="switchTab('delivery')">📦 Delivery</button>
             <button class="tab-btn" onclick="switchTab('favorites')">⭐ Favorites</button>
+        </div>
+
+        <!-- Delivery Tab (New) -->
+        <div id="delivery" class="tab-content">
+            <div class="instruction">
+                🚀 Quick delivery request setup<br>
+                ⏱️ Real-time order tracking<br>
+                🏃 Live runner updates
+            </div>
+            <button class="btn btn-primary" onclick="goToDeliveryPage()" style="width: 100%;">
+                ➕ New Delivery Request
+            </button>
+            <div id="order-info"></div>
         </div>
         
         <!-- Route Tab -->
@@ -335,6 +421,612 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     
     <script>
+        // ==================== DELIVERY ORDER STATE ====================
+        let currentOrderId = null;
+        let orderPollingInterval = null;
+
+        function goToDeliveryPage() {
+            window.location.href = '/request';
+        }
+
+        // ==================== DELIVERY ORDER TRACKING ====================
+        // Global order data
+        let orderData = null;
+        let runnersData = [];
+        
+        // Get order ID from URL
+        function getOrderFromURL() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('order_id');
+        }
+        
+        // Load order from backend
+        async function loadOrder(orderId) {
+            try {
+                const response = await fetch(`/api/order/${orderId}`);
+                if (!response.ok) throw new Error('Order not found');
+                
+                const order = await response.json();
+                console.log('✓ Order loaded:', order);
+                return order;
+            } catch (error) {
+                console.error('Error loading order:', error);
+                return null;
+            }
+        }
+        
+        // Load runners from backend
+        async function loadRunners() {
+            try {
+                const response = await fetch('/api/runners');
+                if (!response.ok) throw new Error('Runners not found');
+                
+                const data = await response.json();
+                // API returns array directly
+                let runners = Array.isArray(data) ? data : (data.runners || []);
+                
+                // CRITICAL FIX: Normalize lon -> lng for consistency
+                runners = runners.map(runner => ({
+                    ...runner,
+                    lng: runner.lng || runner.lon  // Support both lng and lon
+                }));
+                
+                console.log('✓ Runners loaded:', runners.length);
+                console.log('✓ First runner sample:', runners[0]);
+                return runners;
+            } catch (error) {
+                console.error('Error loading runners:', error);
+                return [];
+            }
+        }
+        
+        // Haversine distance formula
+        function calculateHaversineDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371; // Earth radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+        
+        // Find nearest runner to delivery location
+        function findNearestRunnerToDestination(deliveryLat, deliveryLng, runners) {
+            console.log('🔍 Finding nearest runner...', {deliveryLat, deliveryLng, runnersCount: runners?.length || 0});
+            
+            if (!runners || runners.length === 0) {
+                console.error('❌ No runners available');
+                return null;
+            }
+            
+            let nearest = null;
+            let minDistance = Infinity;
+            
+            for (const runner of runners) {
+                // Normalize lng field (support both lng and lon)
+                const runnerLng = runner.lng || runner.lon;
+                
+                // Validate runner data
+                if (!runner || typeof runner.lat !== 'number' || typeof runnerLng !== 'number') {
+                    console.warn('⚠️ Skipping invalid runner:', runner);
+                    continue;
+                }
+                
+                // Ensure runner has lng field for consistency
+                runner.lng = runnerLng;
+                
+                const distance = calculateHaversineDistance(
+                    deliveryLat, deliveryLng,
+                    runner.lat, runner.lng
+                );
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = runner;
+                }
+            }
+            
+            if (!nearest) {
+                console.error('❌ No valid nearest runner found');
+                return null;
+            }
+            
+            const runnerName = nearest?.name || 'Unknown Runner';
+            console.log('✓ Nearest runner:', runnerName, 'Distance:', minDistance.toFixed(2), 'km');
+            return nearest;
+        }
+        
+        // Main order initialization
+        async function initializeOrderTracking() {
+            try {
+                // STEP 1: Safely read order_id from URL
+                const params = new URLSearchParams(window.location.search);
+                const orderId = params.get('order_id');
+                
+                console.log('🔍 Step 1: Order ID from URL:', orderId);
+                
+                if (!orderId) {
+                    console.log('ℹ️ No order_id in URL - showing normal map');
+                    return; // Exit gracefully - not an error
+                }
+                
+                // Validate order_id format
+                if (!orderId.startsWith('ORD-')) {
+                    console.error('❌ Invalid order_id format:', orderId);
+                    displayError('Invalid order ID format');
+                    return;
+                }
+                
+                console.log('📦 Step 2: Loading order data for', orderId);
+                
+                // STEP 2: Load order and runners (with timeout protection)
+                let order, runners;
+                try {
+                    [order, runners] = await Promise.all([
+                        loadOrder(orderId),
+                        loadRunners()
+                    ]);
+                } catch (apiError) {
+                    console.error('❌ API load failed:', apiError);
+                    displayError('Failed to load order data');
+                    return;
+                }
+                
+                console.log('✓ Step 3: Order loaded:', order ? order.order_id : 'NULL');
+                console.log('✓ Step 4: Runners loaded:', runners ? runners.length : 0);
+                
+                // STEP 3: Validate order data
+                if (!order) {
+                    console.error('❌ Order not found:', orderId);
+                    displayError('Order not found');
+                    return;
+                }
+                
+                // CRITICAL: Validate coordinates exist
+                if (typeof order.user_lat !== 'number' || typeof order.user_lng !== 'number') {
+                    console.error('❌ Order missing coordinates:', order);
+                    displayError('Order has invalid location data');
+                    return;
+                }
+                
+                // Validate coordinate ranges
+                if (order.user_lat < -90 || order.user_lat > 90 || order.user_lng < -180 || order.user_lng > 180) {
+                    console.error('❌ Order has out-of-range coordinates:', order.user_lat, order.user_lng);
+                    displayError('Order has invalid coordinates');
+                    return;
+                }
+                
+                if (!runners || runners.length === 0) {
+                    console.error('❌ No runners available');
+                    displayError('No runners available');
+                    return;
+                }
+                
+                // STEP 4: Store globally
+                orderData = order;
+                runnersData = runners;
+                console.log('✓ Step 5: Order data stored globally');
+                console.log('  Order location: (' + order.user_lat + ', ' + order.user_lng + ')');
+                
+                // STEP 5: Display order info
+                try {
+                    displayOrderInfo(order);
+                    console.log('✓ Step 6: Order info displayed');
+                } catch (displayError) {
+                    console.error('⚠️ Failed to display order info:', displayError);
+                }
+                
+                // STEP 6: Check if approved
+                if (order.status !== 'approved' && order.status !== 'assigned' && order.status !== 'completed') {
+                    console.log('⏳ Step 7: Order status is', order.status, '- waiting for approval');
+                    return; // Not an error - just waiting
+                }
+                
+                console.log('✓ Step 7: Order is approved, rendering route...');
+                
+                // STEP 7: Render route (can fail without breaking page)
+                try {
+                    await renderOrderRoute(order, runners);
+                    console.log('✓ Step 8: Route rendered successfully');
+                } catch (routeError) {
+                    console.error('❌ Failed to render route:', routeError);
+                    displayError('Failed to render route: ' + routeError.message);
+                    return;
+                }
+                
+                // STEP 8: Start polling for updates
+                try {
+                    startOrderPolling(orderId);
+                    console.log('✓ Step 9: Polling started');
+                } catch (pollError) {
+                    console.error('⚠️ Failed to start polling:', pollError);
+                }
+                
+                console.log('✅ Order tracking initialization COMPLETE');
+                
+            } catch (error) {
+                console.error('❌ CRITICAL ERROR in initializeOrderTracking():', error);
+                console.error('Error stack:', error.stack);
+                displayError('Failed to initialize: ' + error.message);
+                // Don't throw - let map continue to work
+            }
+        }
+        
+        // Render route using OSRM
+        async function renderOrderRoute(order, runners) {
+            try {
+                console.log('🗺️ Starting route rendering...');
+                console.log('Order Data:', order);
+                console.log('Runners:', runners);
+                
+                // CRITICAL: Validate inputs
+                if (!order || typeof order.user_lat !== 'number' || typeof order.user_lng !== 'number') {
+                    throw new Error('Invalid order data - missing coordinates');
+                }
+                
+                if (!runners || !Array.isArray(runners) || runners.length === 0) {
+                    console.error('❌ No runners received from API');
+                    throw new Error('No runners available');
+                }
+                
+                // Validate map exists
+                if (!map) {
+                    throw new Error('Map not initialized');
+                }
+                
+                // Destination is ALWAYS user delivery location
+                const destinationLat = order.user_lat;
+                const destinationLng = order.user_lng;
+                
+                console.log('📍 Destination:', destinationLat, destinationLng);
+                
+                // Find nearest runner
+                const nearestRunner = findNearestRunnerToDestination(destinationLat, destinationLng, runners);
+                console.log('Nearest Runner:', nearestRunner);
+                console.log('Nearest Runner:', nearestRunner);
+                
+                if (!nearestRunner) {
+                    console.error('❌ No nearest runner found');
+                    throw new Error('No runners available');
+                }
+                
+                // Validate runner coordinates
+                if (typeof nearestRunner.lat !== 'number' || typeof nearestRunner.lng !== 'number') {
+                    throw new Error('Nearest runner has invalid coordinates');
+                }
+                
+                // START = nearest runner, END = delivery location
+                const startLat = nearestRunner.lat;
+                const startLng = nearestRunner.lng;
+                const endLat = destinationLat;
+                const endLng = destinationLng;
+                
+                console.log('🚀 Calling OSRM API...');
+                console.log('  START:', startLat, startLng, '(' + nearestRunner.name + ')');
+                console.log('  END:', endLat, endLng);
+                
+                // Call OSRM for real road routing
+                const routeData = await fetchRouteFromOSRM(startLat, startLng, endLat, endLng);
+                
+                console.log('✓ OSRM response received:', routeData);
+                
+                if (!routeData || !routeData.success) {
+                    throw new Error('OSRM routing failed: ' + (routeData?.error || 'Unknown error'));
+                }
+                
+                // Validate route data
+                if (!routeData.coordinates || !Array.isArray(routeData.coordinates)) {
+                    throw new Error('OSRM returned invalid coordinates');
+                }
+                
+                console.log('✓ Route data valid:', routeData.distanceKm, 'km,', routeData.durationMinutes, 'min');
+                console.log('✓ Route has', routeData.coordinates.length, 'coordinate points');
+                
+                // Clear previous route
+                clearRoute();
+                console.log('✓ Previous route cleared');
+                
+                // Draw route on map
+                drawOSRMRoute(routeData, nearestRunner, order);
+                console.log('✓ Route drawn on map');
+                
+                // Center map on route
+                try {
+                    map.setView([destinationLat, destinationLng], 14);
+                    console.log('✓ Map centered on delivery location');
+                } catch (viewError) {
+                    console.error('⚠️ Failed to center map:', viewError);
+                }
+                
+                // Update order info with real distance/time
+                updateOrderInfoWithRoute(order, routeData, nearestRunner);
+                console.log('✓ Order info updated with route details');
+                
+            } catch (error) {
+                console.error('❌ CRITICAL ERROR in renderOrderRoute():', error);
+                console.error('Error stack:', error.stack);
+                throw error; // Re-throw to be caught by caller
+            }
+        }
+        
+        // Clear previous route layers
+        function clearRoute() {
+            if (window.deliveryLine) {
+                map.removeLayer(window.deliveryLine);
+                window.deliveryLine = null;
+            }
+            if (window.routeLabelMarker) {
+                map.removeLayer(window.routeLabelMarker);
+                window.routeLabelMarker = null;
+            }
+            if (window.userDeliveryMarker) {
+                map.removeLayer(window.userDeliveryMarker);
+                window.userDeliveryMarker = null;
+            }
+            if (window.runnerDeliveryMarker) {
+                map.removeLayer(window.runnerDeliveryMarker);
+                window.runnerDeliveryMarker = null;
+            }
+        }
+        
+        // Draw OSRM route on map
+        function drawOSRMRoute(routeData, runner, order) {
+            try {
+                console.log('🎨 Drawing route on map...');
+                
+                // Validate inputs
+                if (!map) {
+                    throw new Error('Map not initialized');
+                }
+                
+                if (!routeData || !routeData.coordinates || !Array.isArray(routeData.coordinates)) {
+                    throw new Error('Invalid route data');
+                }
+                
+                if (!runner || typeof runner.lat !== 'number' || typeof runner.lng !== 'number') {
+                    throw new Error('Invalid runner data');
+                }
+                
+                if (!order || typeof order.user_lat !== 'number' || typeof order.user_lng !== 'number') {
+                    throw new Error('Invalid order data');
+                }
+                
+                // Convert GeoJSON [lng, lat] to Leaflet [lat, lng]
+                const leafletCoords = routeData.coordinates.map(coord => {
+                    if (!Array.isArray(coord) || coord.length < 2) {
+                        throw new Error('Invalid coordinate in route');
+                    }
+                    return [coord[1], coord[0]];
+                });
+                
+                console.log('✓ Converted', leafletCoords.length, 'coordinates');
+                
+                // Draw polyline
+                window.deliveryLine = L.polyline(leafletCoords, {
+                    color: '#4c8cff',
+                    weight: 3,
+                    opacity: 0.8,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(map);
+                console.log('✓ Polyline drawn');
+                
+                // Add runner marker (red)
+                window.runnerDeliveryMarker = L.circleMarker([runner.lat, runner.lng], {
+                    radius: 10,
+                    fillColor: '#ff6b6b',
+                    color: '#c00000',
+                    weight: 3,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(map);
+                window.runnerDeliveryMarker.bindPopup(`🏃 ${runner.name}`);
+                console.log('✓ Runner marker added');
+                
+                // Add delivery marker (blue)
+                window.userDeliveryMarker = L.circleMarker([order.user_lat, order.user_lng], {
+                    radius: 10,
+                    fillColor: '#4c8cff',
+                    color: '#1755a8',
+                    weight: 3,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(map);
+                window.userDeliveryMarker.bindPopup('📍 Delivery Location');
+                console.log('✓ Delivery marker added');
+                
+                // Calculate midpoint for label
+                const midIdx = Math.floor(leafletCoords.length / 2);
+                const midpoint = leafletCoords[midIdx];
+                
+                // Create label
+                const labelHtml = `
+                    <div class="route-label">
+                        <span class="route-label-icon">📍</span>
+                        <span>${routeData.distanceKm} km • ${routeData.durationMinutes} min</span>
+                    </div>
+                `;
+                
+                window.routeLabelMarker = L.marker(midpoint, {
+                    icon: L.divIcon({
+                        html: labelHtml,
+                        className: '',
+                        iconSize: null,
+                        iconAnchor: null
+                    })
+                }).addTo(map);
+                console.log('✓ Route label added');
+                
+                // Fit map to route
+                const group = new L.featureGroup([window.userDeliveryMarker, window.runnerDeliveryMarker]);
+                map.fitBounds(group.getBounds().pad(0.1));
+                console.log('✓ Map bounds fitted to route');
+                
+            } catch (error) {
+                console.error('❌ Failed to draw route:', error);
+                throw error; // Re-throw to be caught by caller
+            }
+        }
+        
+        // Display order info
+        function displayOrderInfo(order) {
+            const orderDiv = document.getElementById('info'); // Target visible div in Route tab
+            
+            if (!orderDiv) {
+                console.error('❌ Cannot find info div');
+                return;
+            }
+            
+            const statusMessages = {
+                'pending': '⏳ Waiting for admin approval...',
+                'approved': '✓ Order approved! Calculating route...',
+                'assigned': '🏃 Runner en route to you!',
+                'completed': '✓ Delivery completed!',
+                'rejected': '✕ Order was rejected'
+            };
+            
+            let html = `
+                <div class="status-badge badge-${order.status}">${order.status.toUpperCase()}</div>
+                <div class="route-info">
+                    <strong>Order:</strong> ${order.order_id}<br>
+                    <strong>Status:</strong> ${statusMessages[order.status] || order.status}
+                </div>
+            `;
+            
+            orderDiv.innerHTML = html;
+            console.log('✓ Order info displayed in info div');
+        }
+        
+        // Update order info with route details
+        function updateOrderInfoWithRoute(order, routeData, runner) {
+            console.log('📊 Updating order info with route...', {order, routeData, runner});
+            
+            const orderDiv = document.getElementById('info'); // Target visible div in Route tab
+            
+            if (!orderDiv) {
+                console.error('❌ Cannot find info div');
+                return;
+            }
+            
+            // Validate inputs
+            if (!order) {
+                console.error('❌ Order data is null');
+                displayError('Order data missing');
+                return;
+            }
+            
+            if (!routeData) {
+                console.error('❌ Route data is null');
+                displayError('Route data missing');
+                return;
+            }
+            
+            if (!runner) {
+                console.error('❌ Runner data is null');
+                displayError('No runner assigned');
+                return;
+            }
+            
+            const statusMessages = {
+                'pending': '⏳ Waiting for admin approval...',
+                'approved': '✓ Order approved! Runner assigned...',
+                'assigned': '🏃 Runner en route to you!',
+                'completed': '✓ Delivery completed!',
+                'rejected': '✕ Order was rejected'
+            };
+            
+            // Safely access runner properties
+            const runnerName = runner?.name || 'Unknown Runner';
+            const distanceKm = routeData?.distanceKm || 'N/A';
+            const durationMin = routeData?.durationMinutes || 'N/A';
+            
+            let html = `
+                <div class="status-badge badge-${order.status}">${order.status.toUpperCase()}</div>
+                <div class="route-info">
+                    <strong>Order:</strong> ${order.order_id}<br>
+                    <strong>Status:</strong> ${statusMessages[order.status] || order.status}<br>
+                    <strong>Runner:</strong> ${runnerName}<br>
+                    <strong>Distance:</strong> <span class="distance">${distanceKm} km</span><br>
+                    <strong>ETA:</strong> ${durationMin} min
+                </div>
+            `;
+            
+            orderDiv.innerHTML = html;
+            console.log('✓ Route info displayed:', distanceKm, 'km,', durationMin, 'min');
+        }
+        
+        // Display error
+        function displayError(message) {
+            const orderDiv = document.getElementById('info'); // Target visible div in Route tab
+            
+            if (!orderDiv) {
+                console.error('❌ Cannot find info div');
+                return;
+            }
+            
+            orderDiv.innerHTML = `<div class="status-loading">❌ ${message}</div>`;
+            console.error('❌ Error displayed:', message);
+        }
+        
+        // Start polling for order updates
+        function startOrderPolling(orderId) {
+            if (orderPollingInterval) return; // Already polling
+            
+            orderPollingInterval = setInterval(async () => {
+                const order = await loadOrder(orderId);
+                if (order && orderData) {
+                    // Check if status changed
+                    if (order.status !== orderData.status) {
+                        console.log('Status changed:', orderData.status, '->', order.status);
+                        orderData = order;
+                        displayOrderInfo(order);
+                        
+                        // Re-render route if approved
+                        if (order.status === 'approved' || order.status === 'assigned') {
+                            await renderOrderRoute(order, runnersData);
+                        }
+                    }
+                }
+            }, 2000);
+        }
+
+        // ==================== OSRM ROUTING ====================
+        async function fetchRouteFromOSRM(startLat, startLng, endLat, endLng) {
+            try {
+                const url = `https://router.project-osrm.org/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+                
+                console.log('OSRM URL:', url);
+                
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`OSRM Error: ${response.status}`);
+                
+                const data = await response.json();
+                
+                if (data.routes && data.routes.length > 0) {
+                    const route = data.routes[0];
+                    console.log('✓ OSRM route received:', route.distance, 'm,', route.duration, 's');
+                    return {
+                        coordinates: route.geometry.coordinates, // GeoJSON format [lng, lat]
+                        distanceMeters: route.distance,
+                        distanceKm: (route.distance / 1000).toFixed(2),
+                        durationSeconds: route.duration,
+                        durationMinutes: Math.round(route.duration / 60),
+                        success: true
+                    };
+                }
+                
+                return { success: false, error: 'No routes found' };
+            } catch (error) {
+                console.error('OSRM Error:', error);
+                return { success: false, error: error.message };
+            }
+        }
+        // Legacy updateDeliveryMap removed - now using renderOrderRoute
+
         // ==================== STATE ====================
         let map = null;
         let userMarker = null;
@@ -346,6 +1038,7 @@
         let bikeActive = true;
         let clickTooltip = null;
         let destinationMarker = null;
+
         
         // Popular Tirupati locations
         const locations = {
@@ -361,9 +1054,10 @@
             }
         };
         
+        // State - will be populated from order data
         const state = {
-            userLocation: { lat: 13.6150, lng: 79.4050 },  // Railway Station - User/Customer
-            userLocationName: 'Tirupati Railway Station Area',
+            userLocation: { lat: 13.6150, lng: 79.4050 },  // Default center
+            userLocationName: 'Map Center',
             selectedLocation: null,
             nearestRunner: null,
             runners: [],
@@ -373,57 +1067,61 @@
             currentTimeMin: null
         };
         
-        // Simulated runners data - positioned near user, ~2km away
-        const simulatedRunners = [
-            { id: 1, name: 'Runner 1', lat: 13.6300, lng: 79.4200, speed: 15, locationName: 'Tirupati Central Market' },
-            { id: 2, name: 'Runner 2', lat: 13.6280, lng: 79.4180, speed: 12, locationName: 'Gandhi Road' },
-            { id: 3, name: 'Runner 3', lat: 13.6320, lng: 79.4220, speed: 18, locationName: 'Main Street Tirupati' },
-            { id: 4, name: 'Runner 4', lat: 13.6200, lng: 79.4100, speed: 14, locationName: 'Sri Karumariah Temple' },
-            { id: 5, name: 'Runner 5', lat: 13.6400, lng: 79.4300, speed: 16, locationName: 'Krishnan Street' }
-        ];
-        
         // ==================== MAP INITIALIZATION ====================
-        function initializeMap() {
+        async function initializeMap() {
             try {
                 console.log('📍 Initializing map...');
                 
-                // Create map
-                map = L.map('map', {
-                    center: [state.userLocation.lat, state.userLocation.lng],
-                    zoom: 15,
-                    zoomControl: true,
-                    attributionControl: true,
-                    dragging: true,
-                    tap: true
-                });
+                // STEP 1: Create map FIRST - this must succeed
+                try {
+                    map = L.map('map', {
+                        center: [13.6150, 79.4050], // Safe default center
+                        zoom: 14,
+                        zoomControl: true,
+                        attributionControl: true,
+                        dragging: true,
+                        tap: true
+                    });
+                    
+                    console.log('✓ Map instance created');
+                    
+                    // Add tile layer
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© OpenStreetMap contributors',
+                        maxZoom: 19,
+                        minZoom: 1
+                    }).addTo(map);
+                    
+                    console.log('✓ Tile layer added - map is visible');
+                    
+                } catch (mapError) {
+                    console.error('❌ CRITICAL: Cannot create map:', mapError);
+                    displayError('Failed to initialize map');
+                    return; // Stop here - can't continue without map
+                }
                 
-                console.log('✓ Map instance created');
+                // STEP 2: Set up event handlers (safe operation)
+                try {
+                    setupMapEventHandlers();
+                    console.log('✓ Event handlers registered');
+                } catch (handlerError) {
+                    console.error('⚠️ Event handler error (non-critical):', handlerError);
+                }
                 
-                // Add OpenStreetMap tile layer
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: '© OpenStreetMap contributors',
-                    maxZoom: 19,
-                    minZoom: 1
-                }).addTo(map);
+                // STEP 3: Try to load order tracking (can fail safely)
+                try {
+                    await initializeOrderTracking();
+                    console.log('✓ Order tracking initialized');
+                } catch (orderError) {
+                    console.error('⚠️ Order tracking failed (map still works):', orderError);
+                    // Map is still functional even if order tracking fails
+                }
                 
-                console.log('✓ Tile layer added');
+                console.log('✅ Map initialization complete');
                 
-                // Add user marker
-                addUserMarker();
-                
-                // Set up event handlers
-                setupMapEventHandlers();
-                console.log('✓ Event handlers registered');
-                
-                // Simulate runners
-                updateRunners();
-                
-                // Auto-refresh runners every 3 seconds
-                setInterval(updateRunners, 3000);
-                
-                console.log('✅ Map initialized successfully');
             } catch (error) {
-                console.error('❌ Map initialization error:', error);
+                console.error('❌ Unexpected error in initializeMap():', error);
+                // Even if everything fails, don't crash the entire page
             }
         }
         
@@ -478,12 +1176,31 @@
         }
         
         function findNearestRunner() {
-            if (state.runners.length === 0) return;
+            console.log('🔍 Finding nearest runner for user location...', {runners: state.runners.length});
+            
+            if (!state.runners || state.runners.length === 0) {
+                console.error('❌ No runners available');
+                state.nearestRunner = null;
+                updateRouteDisplay();
+                return;
+            }
             
             let nearest = null;
             let minDistance = Infinity;
             
             state.runners.forEach(runner => {
+                // Normalize lng field (support both lng and lon)
+                const runnerLng = runner.lng || runner.lon;
+                
+                // Validate runner data
+                if (!runner || typeof runner.lat !== 'number' || typeof runnerLng !== 'number') {
+                    console.warn('⚠️ Skipping invalid runner:', runner);
+                    return;
+                }
+                
+                // Ensure runner has lng field for consistency
+                runner.lng = runnerLng;
+                
                 const distance = calculateDistance(
                     state.userLocation.lat,
                     state.userLocation.lng,
@@ -496,6 +1213,13 @@
                     nearest = { ...runner, distance };
                 }
             });
+            
+            if (!nearest) {
+                console.error('❌ No valid nearest runner found');
+            } else {
+                const runnerName = nearest?.name || 'Unknown Runner';
+                console.log('✓ Nearest runner found:', runnerName);
+            }
             
             state.nearestRunner = nearest;
             updateRouteDisplay();
@@ -633,20 +1357,29 @@
         
         // ==================== EVENT HANDLERS ====================
         function setupMapEventHandlers() {
-            map.on('click', (e) => {
-                const { lat, lng } = e.latlng;
-                state.lastClickCoordinates = { lat, lng };
-
-                // Restart bike movement from runner start on click
-                bikeProgress = 0;
-                bikeActive = true;
-                
-                // Show tooltip
-                showCoordinateTooltip(lat, lng);
-                console.log(`📍 Clicked: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
-            });
+            if (!map) {
+                console.error('❌ Cannot set up event handlers - map not initialized');
+                return;
+            }
             
-            // Removed double-click destination marker - keep map clean with only runner + user
+            try {
+                map.on('click', (e) => {
+                    const { lat, lng } = e.latlng;
+                    state.lastClickCoordinates = { lat, lng };
+
+                    // Restart bike movement from runner start on click
+                    bikeProgress = 0;
+                    bikeActive = true;
+                    
+                    // Show tooltip
+                    showCoordinateTooltip(lat, lng);
+                    console.log(`📍 Clicked: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+                });
+                
+                console.log('✓ Map click handler registered');
+            } catch (error) {
+                console.error('❌ Failed to set up event handlers:', error);
+            }
         }
         
         function showCoordinateTooltip(lat, lng) {
@@ -665,41 +1398,7 @@
             .openOn(map);
         }
         
-        // ==================== RUNNERS UPDATE ====================
-        function updateRunners() {
-            // Simulate runner movement towards user (directed walk)
-            state.runners = simulatedRunners.map(runner => {
-                const userLat = state.userLocation.lat;
-                const userLng = state.userLocation.lng;
-                
-                // Calculate direction vector towards user
-                const dLat = userLat - runner.lat;
-                const dLng = userLng - runner.lng;
-                const distance = Math.sqrt(dLat * dLat + dLng * dLng);
-                
-                // Move towards user if not already there
-                if (distance > 0.0001) {
-                    const stepSize = 0.0008;  // Movement step
-                    const dirLat = dLat / distance;
-                    const dirLng = dLng / distance;
-                    
-                    return {
-                        ...runner,
-                        lat: runner.lat + dirLat * stepSize,
-                        lng: runner.lng + dirLng * stepSize
-                    };
-                }
-                return runner;
-            });
-
-            // Move the bike along the route toward the customer
-            if (bikeActive) {
-                bikeProgress = Math.min(1, bikeProgress + 0.08);
-            }
-            
-            addRunnerMarkers();
-            findNearestRunner();
-        }
+        // Legacy updateRunners removed - now loading from API
         
         // ==================== LOCATION FUNCTIONS ====================
         function getCurrentLocation() {
@@ -797,7 +1496,7 @@
         }
         
         // ==================== INITIALIZATION ====================
-        function start() {
+        async function start() {
             console.log('📋 Starting application...');
             
             // Wait for Leaflet to be loaded
@@ -808,7 +1507,7 @@
             }
             
             console.log('✓ Leaflet library available');
-            initializeMap();
+            await initializeMap();
         }
         
         // Start when DOM is ready

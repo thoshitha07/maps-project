@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Request Delivery</title>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            width: 100%;
+            overflow: hidden;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+        }
+
+        #map {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 100%;
+            z-index: 1;
+        }
+
+        .leaflet-container {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* MAIN PANEL */
+        .container {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: white;
+            padding: 24px;
+            z-index: 1000;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+            width: 360px;
+            animation: slideUp 0.4s ease-out;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(450px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .header {
+            font-size: 20px;
+            font-weight: 600;
+            color: #222;
+            margin-bottom: 20px;
+        }
+
+        /* LOCATION INPUT SECTION */
+        .section {
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: #888;
+            margin-bottom: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        input[type="number"] {
+            flex: 1;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            transition: all 0.3s ease;
+        }
+
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #4c8cff;
+            box-shadow: 0 0 0 3px rgba(76, 140, 255, 0.1);
+        }
+
+        .info-text {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.5;
+            margin-bottom: 15px;
+        }
+
+        /* BUTTONS */
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        button {
+            padding: 12px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #4c8cff 0%, #357ad8 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(76, 140, 255, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+
+        .btn-secondary:hover {
+            background: #e8e8e8;
+        }
+
+        /* STATUS SECTION */
+        .status-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
+            border: 1px solid #e0e6f2;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 15px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 10px;
+        }
+
+        .badge-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge-approved {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-assigned {
+            background: #cfe2ff;
+            color: #084298;
+        }
+
+        .badge-completed {
+            background: #d1e7dd;
+            color: #0f5132;
+        }
+
+        .badge-rejected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .status-info {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f0f0f0;
+            border-top: 2px solid #4c8cff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* TOAST NOTIFICATIONS */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2000;
+            max-width: 350px;
+        }
+
+        .toast {
+            background: white;
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: toastSlide 0.3s ease-out;
+        }
+
+        @keyframes toastSlide {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .toast.success {
+            border-left: 4px solid #28a745;
+        }
+
+        .toast.success .icon {
+            color: #28a745;
+        }
+
+        .toast.error {
+            border-left: 4px solid #dc3545;
+        }
+
+        .toast.error .icon {
+            color: #dc3545;
+        }
+
+        .toast.info {
+            border-left: 4px solid #17a2b8;
+        }
+
+        .toast.info .icon {
+            color: #17a2b8;
+        }
+
+        .toast-message {
+            flex: 1;
+            font-size: 13px;
+            color: #333;
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 600px) {
+            .container {
+                width: calc(100% - 40px);
+                left: 20px;
+                right: 20px;
+            }
+
+            .button-group {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="container">
+        <div class="header">📍 Request Delivery</div>
+        
+        <div class="section">
+            <div class="section-title">Delivery Location</div>
+            <div class="input-group">
+                <input type="number" id="userLat" placeholder="Latitude" step="0.0001" min="-90" max="90">
+                <input type="number" id="userLng" placeholder="Longitude" step="0.0001" min="-180" max="180">
+            </div>
+            <div class="info-text">
+                ✎ Click on the map to set location, or enter coordinates manually
+            </div>
+        </div>
+
+        <div class="button-group">
+            <button class="btn-secondary" onclick="useCurrentLocation()">📍 Use Current</button>
+            <button class="btn-primary" onclick="requestDelivery()" id="requestBtn">Request Delivery</button>
+        </div>
+
+        <div id="statusSection" style="display: none;">
+            <div class="status-card">
+                <div id="statusBadge" class="status-badge badge-pending">Pending</div>
+                <div class="status-info">
+                    <div><strong>Order ID:</strong> <span id="orderId">-</span></div>
+                    <div><strong>Runner:</strong> <span id="runnerName">-</span></div>
+                    <div><strong>Distance:</strong> <span id="distance">-</span> km</div>
+                    <div id="statusMessage" style="margin-top: 10px; color: #4c8cff;">
+                        <span class="spinner"></span>
+                        <span>Waiting for admin approval...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    <script>
+        // ==================== GLOBALS ====================
+        let map;
+        let userMarker;
+        let selectedLat = null;
+        let selectedLng = null;
+        let currentOrderId = null;
+        let pollingInterval = null;
+
+        // ==================== MAP INITIALIZATION ====================
+        function initMap() {
+            map = L.map('map').setView([13.6288, 79.4192], 14);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+
+            // Click to select location
+            map.on('click', (e) => {
+                selectedLat = e.latlng.lat;
+                selectedLng = e.latlng.lng;
+                
+                // Update input fields
+                document.getElementById('userLat').value = selectedLat.toFixed(4);
+                document.getElementById('userLng').value = selectedLng.toFixed(4);
+                
+                // Update marker
+                if (userMarker) map.removeLayer(userMarker);
+                userMarker = L.marker([selectedLat, selectedLng], {
+                    title: 'Delivery Location',
+                    icon: L.icon({
+                        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                        iconSize: [25, 41],
+                        iconAnchor: [12, 41],
+                        popupAnchor: [1, -34]
+                    })
+                }).addTo(map);
+                
+                showToast('Location selected!', 'success');
+            });
+        }
+
+        // ==================== LOCATION FUNCTIONS ====================
+        function useCurrentLocation() {
+            if ('geolocation' in navigator) {
+                showToast('Getting your location...', 'info');
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const { latitude, longitude } = position.coords;
+                    selectedLat = latitude;
+                    selectedLng = longitude;
+                    
+                    document.getElementById('userLat').value = latitude.toFixed(4);
+                    document.getElementById('userLng').value = longitude.toFixed(4);
+                    
+                    if (userMarker) map.removeLayer(userMarker);
+                    userMarker = L.marker([latitude, longitude], {
+                        title: 'Your Location',
+                        icon: L.icon({
+                            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                            shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                            iconSize: [25, 41],
+                            iconAnchor: [12, 41],
+                            popupAnchor: [1, -34]
+                        })
+                    }).addTo(map);
+                    
+                    map.setView([latitude, longitude], 15);
+                    showToast('Current location loaded!', 'success');
+                }, (error) => {
+                    showToast('Could not get location: ' + error.message, 'error');
+                });
+            } else {
+                showToast('Geolocation not supported', 'error');
+            }
+        }
+
+        // ==================== DELIVERY REQUEST ====================
+        async function requestDelivery() {
+            const lat = parseFloat(document.getElementById('userLat').value);
+            const lng = parseFloat(document.getElementById('userLng').value);
+
+            if (isNaN(lat) || isNaN(lng)) {
+                showToast('Please enter valid coordinates', 'error');
+                return;
+            }
+
+            if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+                showToast('Invalid coordinates', 'error');
+                return;
+            }
+
+            try {
+                document.getElementById('requestBtn').disabled = true;
+                showToast('Creating delivery request...', 'info');
+
+                const response = await fetch('/api/order/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_lat: lat, user_lng: lng })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    showToast('Error: ' + (error.detail || 'Failed to create order'), 'error');
+                    document.getElementById('requestBtn').disabled = false;
+                    return;
+                }
+
+                const order = await response.json();
+                currentOrderId = order.order_id;
+
+                showToast('Delivery request created!', 'success');
+                document.getElementById('requestBtn').disabled = false;
+
+                // Show status section
+                showStatus(order);
+                
+                // Start polling for status updates
+                startStatusPolling();
+            } catch (error) {
+                console.error('Error:', error);
+                showToast('Failed to create order', 'error');
+                document.getElementById('requestBtn').disabled = false;
+            }
+        }
+
+        // ==================== STATUS POLLING ====================
+        function startStatusPolling() {
+            // Poll every 3 seconds
+            pollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/order/${currentOrderId}`);
+                    if (!response.ok) return;
+                    
+                    const order = await response.json();
+                    updateStatus(order);
+                    
+                    // Redirect when approved
+                    if (order.status === 'approved') {
+                        clearInterval(pollingInterval);
+                        showToast('Order approved! Redirecting...', 'success');
+                        setTimeout(() => {
+                            window.location.href = `/user?order_id=${currentOrderId}`;
+                        }, 1500);
+                    }
+                    
+                    // Stop if rejected
+                    if (order.status === 'rejected') {
+                        clearInterval(pollingInterval);
+                        showToast('Order was rejected', 'error');
+                    }
+                } catch (error) {
+                    console.error('Polling error:', error);
+                }
+            }, 3000);
+        }
+
+        function showStatus(order) {
+            const statusSection = document.getElementById('statusSection');
+            const statusBadge = document.getElementById('statusBadge');
+            const statusMessage = document.getElementById('statusMessage');
+            
+            document.getElementById('orderId').textContent = order.order_id;
+            document.getElementById('runnerName').textContent = order.nearest_runner_name || '-';
+            document.getElementById('distance').textContent = order.distance_km || '-';
+            
+            // Update badge
+            statusBadge.className = 'status-badge badge-' + order.status;
+            statusBadge.textContent = order.status.toUpperCase();
+            
+            // Update message
+            const messages = {
+                'pending': '<span class="spinner"></span><span>Waiting for admin approval...</span>',
+                'approved': '<span class="spinner"></span><span>Admin approved! Redirecting to tracker...</span>',
+                'assigned': '<span class="spinner"></span><span>Runner assigned and on the way!</span>',
+                'completed': '✓ Delivery completed!',
+                'rejected': '✗ Delivery request was rejected'
+            };
+            
+            statusMessage.innerHTML = messages[order.status] || '';
+            statusSection.style.display = 'block';
+        }
+
+        function updateStatus(order) {
+            const statusBadge = document.getElementById('statusBadge');
+            const statusMessage = document.getElementById('statusMessage');
+            
+            // Update badge
+            statusBadge.className = 'status-badge badge-' + order.status;
+            statusBadge.textContent = order.status.toUpperCase();
+            
+            // Update message
+            const messages = {
+                'pending': '<span class="spinner"></span><span>Waiting for admin approval...</span>',
+                'approved': '<span class="spinner"></span><span>Admin approved! Redirecting to tracker...</span>',
+                'assigned': '<span class="spinner"></span><span>Runner assigned and on the way!</span>',
+                'completed': '✓ Delivery completed!',
+                'rejected': '✗ Delivery request was rejected'
+            };
+            
+            statusMessage.innerHTML = messages[order.status] || '';
+        }
+
+        // ==================== NOTIFICATIONS ====================
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const icons = {
+                'success': '✓',
+                'error': '✕',
+                'info': 'ℹ'
+            };
+            
+            toast.innerHTML = `
+                <span class="icon">${icons[type] || '•'}</span>
+                <div class="toast-message">${message}</div>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'toastSlide 0.3s ease-out reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        // ==================== INITIALIZATION ====================
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            
+            // Allow Enter to submit
+            document.getElementById('userLat').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') requestDelivery();
+            });
+            document.getElementById('userLng').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') requestDelivery();
+            });
+        });
+    </script>
+</body>
+</html>
